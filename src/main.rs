@@ -1,9 +1,10 @@
-use clap::{Parser, Subcommand, arg, command, value_parser, ArgAction, Command};
 use console::style;
 use git2::Repository;
 use std::env;
 use std::error::Error;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use gh_stack::api::PullRequest;
 use gh_stack::graph::FlatDep;
@@ -11,102 +12,72 @@ use gh_stack::util::loop_until_confirm;
 use gh_stack::Credentials;
 use gh_stack::{api, git, graph, markdown, persist};
 
-fn clap<'a, b'>() -> Comman<'a, 'b> {
-    let matches = command!()
-        .arg(arg!([identifier] ))
-}
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(disable_help_subcommand = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Args)]
+struct CommonArgs {
     /// All pull requests containing this identifier in their title form a stack
     identifier: String,
 
     /// Exclude an issue from consideration (by number). Pass multiple times
-    #[command(subcommand)]
-    command: Commands
+    #[arg(long = "excl", short = 'e', value_name = "ISSUE")]
+    exclude: Vec<String>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Annotate the descriptions of all PRs in a stack with metadata about all the PRs in the
-    /// stack
+    /// Annotate the descriptions of all PRs in a stack with metadata about all PRs in the stack
     Annotate {
+        #[command(flatten)]
+        common: CommonArgs,
 
-    }
-}
+        /// Prepend the annotation with the contents of this file
+        #[arg(long, short = 'p', value_name = "FILE")]
+        prelude: Option<String>,
+    },
 
+    /// Print a list of all pull requests in a stack to STDOUT
+    Log {
+        #[command(flatten)]
+        common: CommonArgs,
+    },
 
-fn clap<'a, 'b>() -> App<'a, 'b> {
-    let identifier = Arg::with_name("identifier")
-        .index(1)
-        .required(true)
-        .help("All pull requests containing this identifier in their title form a stack");
+    /// Print a bash script to STDOUT that can rebase/update the stack (with a little help)
+    Rebase {
+        #[command(flatten)]
+        common: CommonArgs,
+    },
 
-    let exclude = Arg::with_name("exclude")
-        .long("excl")
-        .short("e")
-        .multiple(true)
-        .takes_value(true)
-        .help("Exclude an issue from consideration (by number). Pass multiple times");
+    /// Rebuild a stack based on changes to local branches and mirror these changes up to the remote
+    Autorebase {
+        #[command(flatten)]
+        common: CommonArgs,
 
-    let annotate = SubCommand::with_name("annotate")
-        .about("Annotate the descriptions of all PRs in a stack with metadata about all PRs in the stack")
-        .setting(AppSettings::ArgRequiredElseHelp)
-        .arg(identifier.clone())
-        .arg(exclude.clone())
-        .arg(Arg::with_name("prelude")
-                .long("prelude")
-                .short("p")
-                .value_name("FILE")
-                .help("Prepend the annotation with the contents of this file"));
+        /// Name of the remote to (force-)push the updated stack to (default: `origin`)
+        #[arg(
+            default_value = "origin",
+            long,
+            short = 'r',
+            value_name = "REMOTE",
+            required = false
+        )]
+        remote: String,
 
-    let log = SubCommand::with_name("log")
-        .about("Print a list of all pull requests in a stack to STDOUT")
-        .setting(AppSettings::ArgRequiredElseHelp)
-        .arg(exclude.clone())
-        .arg(identifier.clone());
+        /// Path to a local copy of the repository
+        #[arg(long, short = 'C', value_name = "PATH_TO_REPO")]
+        repo: String,
 
-    let autorebase = SubCommand::with_name("autorebase")
-        .about("Rebuild a stack based on changes to local branches and mirror these changes up to the remote")
-        .arg(Arg::with_name("remote")
-                .long("remote")
-                .short("r")
-                .value_name("REMOTE")
-                .help("Name of the remote to (force-)push the updated stack to (default: `origin`)"))
-        .arg(Arg::with_name("repo")
-                .long("repo")
-                .short("C")
-                .value_name("PATH_TO_REPO")
-                .help("Path to a local copy of the repository"))
-        .arg(Arg::with_name("boundary")
-                .long("initial-cherry-pick-boundary")
-                .short("b")
-                .value_name("SHA")
-                .help("Stop the initial cherry-pick at this SHA (exclusive)"))
-        .setting(AppSettings::ArgRequiredElseHelp)
-        .arg(exclude.clone())
-        .arg(identifier.clone());
-
-    let rebase = SubCommand::with_name("rebase")
-        .about(
-            "Print a bash script to STDOUT that can rebase/update the stack (with a little help)",
-        )
-        .setting(AppSettings::ArgRequiredElseHelp)
-        .arg(exclude.clone())
-        .arg(identifier.clone());
-
-    let app = App::new("gh-stack")
-        .setting(AppSettings::SubcommandRequiredElseHelp)
-        .setting(AppSettings::DisableVersion)
-        .setting(AppSettings::VersionlessSubcommands)
-        .setting(AppSettings::DisableHelpSubcommand)
-        .subcommand(annotate)
-        .subcommand(log)
-        .subcommand(rebase)
-        .subcommand(autorebase);
-
-    app
+        /// Stop the initial cherry-pick at this SHA (exclusive)
+        #[arg(long = "initial-cherry-pick-boundary", short = 'b', value_name = "SHA")]
+        boundary: Option<String>,
+    },
 }
 
 async fn build_pr_stack(
@@ -126,28 +97,25 @@ async fn build_pr_stack(
     Ok(stack)
 }
 
-fn get_excluded(m: &ArgMatches) -> Vec<String> {
-    let excluded = m.values_of("exclude");
-
-    match excluded {
-        Some(excluded) => excluded.map(String::from).collect(),
-        None => vec![],
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::from_filename(".gh-stack").ok();
 
     let token = env::var("GHSTACK_OAUTH_TOKEN").expect("You didn't pass `GHSTACK_OAUTH_TOKEN`");
     let credentials = Credentials::new(&token);
-    let matches = clap().get_matches();
+    let cli = Cli::parse();
 
-    match matches.subcommand() {
-        ("annotate", Some(m)) => {
-            let identifier = m.value_of("identifier").unwrap();
-            let stack = build_pr_stack(identifier, &credentials, get_excluded(m)).await?;
-            let table = markdown::build_table(&stack, identifier, m.value_of("prelude"));
+    match &cli.command {
+        Commands::Annotate { common, prelude } => {
+            let identifier = common.identifier.clone();
+            let excluded = common.exclude.clone();
+            let prelude_path: Option<&str> = match prelude {
+                Some(path) => Some(path.as_str()),
+                None => None,
+            };
+
+            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
+            let table = markdown::build_table(&stack, &identifier, prelude_path);
 
             for (pr, _) in stack.iter() {
                 println!("{}: {}", pr.number(), pr.title());
@@ -158,10 +126,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             println!("Done!");
         }
-
-        ("log", Some(m)) => {
-            let identifier = m.value_of("identifier").unwrap();
-            let stack = build_pr_stack(identifier, &credentials, get_excluded(m)).await?;
+        Commands::Log { common } => {
+            let identifier = common.identifier.clone();
+            let excluded = common.exclude.clone();
+            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
 
             for (pr, maybe_parent) in stack {
                 match maybe_parent {
@@ -177,33 +145,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
         }
+        Commands::Rebase { common } => {
+            let identifier = common.identifier.to_string();
+            let excluded = common.exclude.clone();
 
-        ("rebase", Some(m)) => {
-            let identifier = m.value_of("identifier").unwrap();
-            let stack = build_pr_stack(identifier, &credentials, get_excluded(m)).await?;
+            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
 
             let script = git::generate_rebase_script(stack);
             println!("{}", script);
         }
+        Commands::Autorebase {
+            common,
+            remote,
+            repo,
+            boundary,
+        } => {
+            let identifier = common.identifier.clone();
+            let excluded = common.exclude.clone();
+            let boundary_str: Option<&str> = match boundary {
+                Some(b) => Some(b.as_str()),
+                None => None,
+            };
 
-        ("autorebase", Some(m)) => {
-            let identifier = m.value_of("identifier").unwrap();
-            let stack = build_pr_stack(identifier, &credentials, get_excluded(m)).await?;
-
-            let repo = m
-                .value_of("repo")
-                .expect("The --repo argument is required.");
+            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
             let repo = Repository::open(repo)?;
-
-            let remote = m.value_of("remote").unwrap_or("origin");
             let remote = repo.find_remote(remote).unwrap();
-
-            git::perform_rebase(stack, &repo, remote.name().unwrap(), m.value_of("boundary"))
-                .await?;
-            println!("All done!");
+            git::perform_rebase(stack, &repo, remote.name().unwrap(), boundary_str).await?;
+            println!("All done");
         }
-
-        (_, _) => panic!("Invalid subcommand."),
     }
 
     Ok(())
