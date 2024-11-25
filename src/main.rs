@@ -11,7 +11,7 @@ use gh_stack::util::loop_until_confirm;
 use gh_stack::Credentials;
 use gh_stack::{api, git, graph, markdown, persist};
 
-fn clap<'a, b'>() -> Command<'a, 'b> {
+fn clap<'a, b'>() -> Comman<'a, 'b> {
     let matches = command!()
         .arg(arg!([identifier] ))
 }
@@ -22,6 +22,18 @@ struct Cli {
     /// All pull requests containing this identifier in their title form a stack
     identifier: String,
 
+    /// Exclude an issue from consideration (by number). Pass multiple times
+    #[command(subcommand)]
+    command: Commands
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Annotate the descriptions of all PRs in a stack with metadata about all the PRs in the
+    /// stack
+    Annotate {
+
+    }
 }
 
 
