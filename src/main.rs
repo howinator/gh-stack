@@ -99,7 +99,9 @@ async fn build_pr_stack(
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::from_filename(".gh-stack").ok();
 
-    let token = env::var("GHSTACK_OAUTH_TOKEN").expect("You didn't pass `GHSTACK_OAUTH_TOKEN`");
+    let token = env::var("GHSTACK_OAUTH_TOKEN")
+        .or(env::var("GH_TOKEN"))
+        .expect("You didn't pass `GHSTACK_OAUTH_TOKEN or GH_TOKEN`");
     let credentials = Credentials::new(&token);
     let cli = Cli::parse();
 
