@@ -33,7 +33,6 @@ fn remove_title_prefixes(row: String) -> String {
     regex.replace_all(&row, "").into_owned()
 }
 
-
 pub async fn persist(prs: &FlatDep, table: &str, c: &Credentials) -> Result<(), Box<dyn Error>> {
     let futures = prs.iter().map(|(pr, _)| {
         let body = table.replace(&pr.title()[..], &format!("👉 {}", pr.title())[..]);

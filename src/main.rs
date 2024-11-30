@@ -2,9 +2,7 @@ use console::style;
 use git2::Repository;
 use std::env;
 use std::error::Error;
-use std::path::PathBuf;
 use std::rc::Rc;
-use std::str::FromStr;
 
 use gh_stack::api::PullRequest;
 use gh_stack::graph::FlatDep;
