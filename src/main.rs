@@ -1,9 +1,8 @@
 use console::style;
-use gh_stack::git::{get_repository_remotes, Remote};
+use gh_stack::git::get_repository_remotes;
 use git2::Repository;
 use std::env;
 use std::error::Error;
-use std::path::Path;
 use std::rc::Rc;
 
 use gh_stack::api::PullRequest;
@@ -86,7 +85,7 @@ async fn build_pr_stack(
     exclude: Vec<String>,
 ) -> Result<FlatDep, Box<dyn Error>> {
     let remotes = get_repository_remotes().unwrap();
-    if (remotes.len() > 5) {
+    if remotes.len() > 5 {
         panic!("More than 5 remotes found. Cannot search on more than 5 remotes.")
     }
     let prs = api::search::fetch_pull_requests_matching(pattern, &credentials, &remotes).await?;
@@ -120,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 None => None,
             };
             let remotes = get_repository_remotes().unwrap();
-            if (remotes.len() > 5) {
+            if remotes.len() > 5 {
                 panic!("More than 5 remotes found. Cannot search on more than 5 remotes.")
             }
 

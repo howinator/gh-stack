@@ -4,7 +4,6 @@ use crate::util::loop_until_confirm;
 use git2::build::CheckoutBuilder;
 use git2::{CherrypickOptions, Commit, Index, Oid, Repository, Revwalk, Sort};
 use std::error::Error;
-use std::path::Path;
 use tokio::process::Command;
 
 fn remote_ref(remote: &str, git_ref: &str) -> String {
