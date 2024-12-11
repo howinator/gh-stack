@@ -3,12 +3,76 @@ use crate::graph::FlatDep;
 use crate::util::loop_until_confirm;
 use git2::build::CheckoutBuilder;
 use git2::{CherrypickOptions, Commit, Index, Oid, Repository, Revwalk, Sort};
-
 use std::error::Error;
 use tokio::process::Command;
 
 fn remote_ref(remote: &str, git_ref: &str) -> String {
     format!("{}/{}", remote, git_ref)
+}
+
+#[derive(Debug, Clone)]
+pub struct Remote {
+    pub organization: String,
+    pub repository: String,
+}
+
+pub fn get_repository_remotes() -> Result<Vec<Remote>, git2::Error> {
+    let repo = Repository::discover(".")?;
+    let remotes = repo.remotes()?;
+
+    let mut result = Vec::new();
+
+    for remote_name in remotes.iter().flatten() {
+        if let Ok(remote) = repo.find_remote(remote_name) {
+            if let Some(url) = remote.url() {
+                // Parse URL to extract organization and repository
+                // Handles formats like:
+                // - https://github.com/organization/repository.git
+                // - git@github.com:organization/repository.git
+                if let Some((org, repo)) = parse_git_url(url) {
+                    result.push(Remote {
+                        organization: org,
+                        repository: repo,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn parse_git_url(url: &str) -> Option<(String, String)> {
+    // Handle SSH format: git@github.com:org/repo.git
+    if url.starts_with("git@") {
+        let parts: Vec<&str> = url.split(':').collect();
+        if parts.len() == 2 {
+            return parse_org_repo(parts[1]);
+        }
+    }
+
+    // Handle HTTPS format: https://github.com/org/repo.git
+    if url.starts_with("http") {
+        let parts: Vec<&str> = url.split('/').collect();
+        if parts.len() >= 2 {
+            let org_repo = &parts[parts.len() - 2..];
+            if org_repo.len() == 2 {
+                return parse_org_repo(org_repo[1]);
+            }
+        }
+    }
+
+    None
+}
+
+fn parse_org_repo(path: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() == 2 {
+        let repo = parts[1].trim_end_matches(".git");
+        Some((parts[0].to_string(), repo.to_string()))
+    } else {
+        None
+    }
 }
 
 /// For all open pull requests in the graph, generate a series of commands
