@@ -59,7 +59,7 @@ pub async fn fetch_pull_requests_matching(
         .unwrap()
         .items;
 
-    println!("Search items: {items:?}");
+    // println!("Search items: {items:?}");
     let item_futures = items.into_iter().map(|item| {
         api::base_request(&client, &credentials, &item.url.replace("issues", "pulls")).send()
     });
@@ -76,7 +76,7 @@ pub async fn fetch_pull_requests_matching(
         .into_iter()
         .map(|item| async {
             let pr = item.unwrap();
-            println!("PR value: {pr}");
+            // println!("PR value: {pr}");
             let pr = pr.to_string();
             let pr = serde_json::from_str::<PullRequest>(&pr).unwrap();
             let pr = pr.fetch_reviews(credentials).await.unwrap();
