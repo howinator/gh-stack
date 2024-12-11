@@ -1,3 +1,4 @@
+use crate::git::Remote;
 use futures::future::join_all;
 use serde::Deserialize;
 use std::error::Error;
@@ -36,18 +37,29 @@ pub async fn fetch_reviews_for_pull_request(
 pub async fn fetch_pull_requests_matching(
     pattern: &str,
     credentials: &Credentials,
+    remotes: &Vec<Remote>,
 ) -> Result<Vec<PullRequest>, Box<dyn Error>> {
     let client = reqwest::Client::new();
+
+    let search_query = form_search_query(pattern, remotes);
 
     let request = api::base_request(
         &client,
         &credentials,
         "https://api.github.com/search/issues",
     )
-    .query(&[("q", format!("\"{}\" in:title", pattern))]);
+    .query(&[("q", search_query)]);
 
-    let items = request.send().await?.json::<SearchResponse>().await?.items;
+    let items = request
+        .send()
+        .await
+        .unwrap()
+        .json::<SearchResponse>()
+        .await
+        .unwrap()
+        .items;
 
+    println!("Search items: {items:?}");
     let item_futures = items.into_iter().map(|item| {
         api::base_request(&client, &credentials, &item.url.replace("issues", "pulls")).send()
     });
@@ -59,15 +71,27 @@ pub async fn fetch_pull_requests_matching(
         .into_iter()
         .map(|item| item.unwrap());
 
-    let responses: Vec<_> = join_all(items.map(|item| item.json::<PullRequest>()))
+    let responses: Vec<_> = join_all(items.map(|item| item.json::<serde_json::Value>()))
         .await
         .into_iter()
         .map(|item| async {
             let pr = item.unwrap();
+            println!("PR value: {pr}");
+            let pr = pr.to_string();
+            let pr = serde_json::from_str::<PullRequest>(&pr).unwrap();
             let pr = pr.fetch_reviews(credentials).await.unwrap();
             pr
         })
         .collect();
 
     Ok(join_all(responses).await)
+}
+
+fn form_search_query(pattern: &str, remotes: &[Remote]) -> String {
+    let repo_filters: Vec<String> = remotes
+        .iter()
+        .map(|remote| format!("repo:{}/{}", remote.organization, remote.repository))
+        .collect();
+
+    format!("{} in:title {}", pattern, repo_filters.join(" "))
 }

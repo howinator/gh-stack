@@ -1,7 +1,9 @@
 use console::style;
+use gh_stack::git::{get_repository_remotes, Remote};
 use git2::Repository;
 use std::env;
 use std::error::Error;
+use std::path::Path;
 use std::rc::Rc;
 
 use gh_stack::api::PullRequest;
@@ -83,7 +85,11 @@ async fn build_pr_stack(
     credentials: &Credentials,
     exclude: Vec<String>,
 ) -> Result<FlatDep, Box<dyn Error>> {
-    let prs = api::search::fetch_pull_requests_matching(pattern, &credentials).await?;
+    let remotes = get_repository_remotes().unwrap();
+    if (remotes.len() > 5) {
+        panic!("More than 5 remotes found. Cannot search on more than 5 remotes.")
+    }
+    let prs = api::search::fetch_pull_requests_matching(pattern, &credentials, &remotes).await?;
 
     let prs = prs
         .into_iter()
@@ -113,6 +119,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Some(path) => Some(path.as_str()),
                 None => None,
             };
+            let remotes = get_repository_remotes().unwrap();
+            if (remotes.len() > 5) {
+                panic!("More than 5 remotes found. Cannot search on more than 5 remotes.")
+            }
 
             let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
             let table = markdown::build_table(&stack, &identifier, prelude_path);
@@ -167,9 +177,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 None => None,
             };
 
-            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
             let repo = Repository::open(repo)?;
             let remote = repo.find_remote(remote).unwrap();
+            let stack = build_pr_stack(&identifier, &credentials, excluded).await?;
             git::perform_rebase(stack, &repo, remote.name().unwrap(), boundary_str).await?;
             println!("All done");
         }
